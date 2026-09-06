@@ -1,0 +1,129 @@
+name: CI
+
+# Sean 10-repo-fleet Batch 4D — 4-job CI for shift-swap.
+# Layout:
+#   lint     → ESLint v9 (typescript-eslint + react-hooks + react-refresh)
+#   test     → vitest (jsdom + @testing-library/react)
+#   build    → tsc --noEmit (strict) + vite build (output: web/dist/)
+#   deploy   → actions/deploy-pages@v4 to GitHub Pages (base: /shift-swap/)
+#
+# ptt-tracker (Batch 4D sister) used a Python-flavored CI; this one is the
+# default Node template flavor, since shift-swap is Vite 6 + React 19 + TS 5.6.
+# The `web/` subfolder is the monorepo root — every job runs with
+# `working-directory: web` so package.json / node_modules / vite.config.ts
+# all resolve correctly.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Install deps
+        run: npm ci --legacy-peer-deps || npm install
+      - name: ESLint
+        run: npm run lint
+
+  test:
+    name: Unit + E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Install deps
+        run: npm ci --legacy-peer-deps || npm install
+      - name: vitest
+        run: npm test -- --run 2>&1
+
+  build:
+    name: Build (tsc + vite)
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Install deps
+        run: npm ci --legacy-peer-deps || npm install
+      - name: tsc --noEmit (strict) + vite build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: web/dist/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  deploy:
+    name: Deploy to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      - name: Install deps
+        run: npm ci --legacy-peer-deps || npm install
+      - name: Build
+        working-directory: web
+        run: npm run build
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Upload to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

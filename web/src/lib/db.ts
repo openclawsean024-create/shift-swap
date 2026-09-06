@@ -48,7 +48,8 @@ export function advanceSwap(id: string) {
   const s = db.swaps.find(x => x.id === id)
   if (!s) return
   const flow = ['待努力確認', '已達審核中', '主管簽核中', '完成'] as const
-  const idx = flow.indexOf(s.status as any)
+  type Flow = typeof flow[number]
+  const idx = (flow as readonly string[]).indexOf(s.status as Flow)
   if (idx >= 0 && idx < flow.length - 1) s.status = flow[idx + 1]
   write(db)
 }
